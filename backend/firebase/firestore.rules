@@ -1,0 +1,119 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    function isStoreOwner(storeId) {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/stores/$(storeId)).data.ownerId == request.auth.uid;
+    }
+    
+    function isActiveUser() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isActive == true &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isBlocked == false;
+    }
+    
+    // Users Collection
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Stores Collection
+    match /stores/{storeId} {
+      allow read: if true; // Public read access for all stores
+      allow create: if isAdmin(); // Only admins can create stores
+      allow update: if isStoreOwner(storeId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Categories Collection
+    match /categories/{categoryId} {
+      allow read: if true; // Public read access
+      allow write: if isAdmin(); // Only admins can manage categories
+    }
+    
+    // Products Collection
+    match /products/{productId} {
+      allow read: if resource.data.status == 'active' || 
+                     isStoreOwner(resource.data.storeId) || 
+                     isAdmin();
+      allow create: if isAuthenticated() && 
+                       isActiveUser() && 
+                       isStoreOwner(request.resource.data.storeId);
+      allow update: if isStoreOwner(resource.data.storeId) || isAdmin();
+      allow delete: if isStoreOwner(resource.data.storeId) || isAdmin();
+    }
+    
+    // User Swipes Collection (flat structure)
+    match /userSwipes/{swipeId} {
+      allow read, write: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isAuthenticated() && 
+                       isActiveUser() && 
+                       request.auth.uid == request.resource.data.userId;
+    }
+    
+    // User Follows Collection (flat structure)
+    match /userFollows/{followId} {
+      allow read: if isOwner(resource.data.userId) || 
+                     isStoreOwner(resource.data.storeId) || 
+                     isAdmin();
+      allow create: if isAuthenticated() && 
+                       isActiveUser() && 
+                       request.auth.uid == request.resource.data.userId;
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+    
+    // Store Followers Collection
+    match /storeFollowers/{storeId}/followers/{userId} {
+      allow read: if isStoreOwner(storeId) || isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+    
+    // Notifications Collection
+    match /notifications/{userId}/notifications/{notificationId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+    
+    // Reports Collection
+    match /reports/{reportId} {
+      allow read: if isAdmin() || request.auth.uid == resource.data.reporterId;
+      allow create: if isAuthenticated() && isActiveUser();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Boosted Products Collection
+    match /boostedProducts/{boostedId} {
+      allow read: if true; // Public read access
+      allow create: if isAuthenticated() && 
+                       isActiveUser() && 
+                       isStoreOwner(request.resource.data.storeId);
+      allow update, delete: if isStoreOwner(resource.data.storeId) || isAdmin();
+    }
+    
+    // Search History Collection
+    match /searchHistory/{searchId} {
+      allow read, write: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isAuthenticated() && 
+                       isActiveUser() && 
+                       request.auth.uid == request.resource.data.userId;
+    }
+  }
+} 
